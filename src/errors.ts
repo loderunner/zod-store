@@ -1,15 +1,17 @@
 /**
- * Error codes for different failure stages in ZodJSON operations.
+ * Error codes for different failure stages in ZodJSON/ZodYAML operations.
  */
 export type ErrorCode =
   | 'FileRead' // File could not be read
   | 'FileWrite' // File could not be written
   | 'InvalidJSON' // File content is not valid JSON
+  | 'InvalidYAML' // File content is not valid YAML
   | 'InvalidVersion' // _version field missing, not an integer, or <= 0
   | 'UnsupportedVersion' // File version > current schema version
   | 'Validation' // Zod schema validation failed
   | 'Migration' // Migration function threw
-  | 'Encoding'; // Schema encoding failed
+  | 'Encoding' // Schema encoding failed
+  | 'MissingDependency'; // Optional dependency not installed
 
 /**
  * Error thrown by ZodJSON operations.

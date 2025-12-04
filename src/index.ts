@@ -7,4 +7,6 @@ export {
   createZodJSON,
 } from './persistence';
 
+export { type ZodYAML, type ZodYAMLOptions, createZodYAML } from './yaml';
+
 export { type ErrorCode, ZodJSONError } from './errors';
