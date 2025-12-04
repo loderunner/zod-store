@@ -1,12 +1,13 @@
 # zod-store
 
-A type-safe JSON persistence library with Zod validation and schema migrations
-for Node.js.
+A type-safe file persistence library with Zod validation and schema migrations
+for Node.js. Supports JSON out of the box, and YAML with an optional dependency.
 
 ## Features
 
-- **Type-safe persistence** – Load and save JSON files with full TypeScript type
+- **Type-safe persistence** – Load and save files with full TypeScript type
   inference
+- **Multiple formats** – JSON built-in, YAML with optional `js-yaml` dependency
 - **Zod validation** – Validate data against Zod schemas on every load
 - **Schema migrations** – Migrate data between versions with a simple,
   sequential migration chain
@@ -29,11 +30,21 @@ npm install zod-store
 yarn add zod-store
 ```
 
+### YAML Support (Optional)
+
+To use YAML files, install `js-yaml`:
+
+```bash
+pnpm add js-yaml
+```
+
 ## Quick Start
+
+### JSON
 
 ```typescript
 import { z } from 'zod';
-import { createZodJSON } from 'zod-store';
+import { createZodJSON } from 'zod-store/json';
 
 // Define your schema
 const SettingsSchema = z.object({
@@ -54,11 +65,47 @@ console.log(data.theme); // 'light' or 'dark'
 await settings.save({ theme: 'dark', fontSize: 16 }, './settings.json');
 ```
 
+### YAML
+
+```typescript
+import { z } from 'zod';
+import { createZodYAML } from 'zod-store/yaml';
+
+const ConfigSchema = z.object({
+  database: z.object({
+    host: z.string(),
+    port: z.number(),
+  }),
+  features: z.array(z.string()),
+});
+
+const config = createZodYAML({
+  schema: ConfigSchema,
+  default: {
+    database: { host: 'localhost', port: 5432 },
+    features: [],
+  },
+});
+
+const data = await config.load('./config.yaml');
+await config.save(data, './config.yaml');
+```
+
 ## API
 
 ### `createZodJSON(options)`
 
 Creates a persistence instance for typed JSON files.
+
+### `createZodYAML(options)`
+
+Creates a persistence instance for typed YAML files. Requires `js-yaml` to be
+installed.
+
+### `createZodStore(options, serializer)`
+
+Creates a persistence instance with a custom serializer. Use this to add support
+for other file formats.
 
 #### Options
 
@@ -71,18 +118,18 @@ Creates a persistence instance for typed JSON files.
 
 #### Returns
 
-A `ZodJSON<T>` object with:
+A `ZodStore<T>` object with:
 
-- `load(path, options?)` – Load and validate JSON from a file
-- `save(data, path, options?)` – Save data to a JSON file
+- `load(path, options?)` – Load and validate data from a file
+- `save(data, path, options?)` – Save data to a file
 
 ### `load(path, options?)`
 
-Loads JSON from a file, applies migrations if needed, and validates against the
+Loads data from a file, applies migrations if needed, and validates against the
 schema.
 
 If a default is configured and loading fails for any reason (file missing,
-invalid JSON, validation error, etc.), returns the default value instead of
+invalid format, validation error, etc.), returns the default value instead of
 throwing. Use `throwOnError: true` to throw errors even when a default is
 configured.
 
@@ -94,7 +141,7 @@ configured.
 
 ### `save(data, path, options?)`
 
-Encodes data using the schema and writes it to a JSON file.
+Encodes data using the schema and writes it to a file.
 
 #### Options
 
@@ -109,7 +156,7 @@ to handle backward compatibility.
 
 ```typescript
 import { z } from 'zod';
-import { createZodJSON } from 'zod-store';
+import { createZodJSON } from 'zod-store/json';
 
 // Version 1 schema (historical)
 const SettingsV1 = z.object({
@@ -151,6 +198,8 @@ const settings = createZodJSON({
 
 When using versions, files are saved with a `_version` field:
 
+**JSON:**
+
 ```json
 {
   "_version": 2,
@@ -159,26 +208,34 @@ When using versions, files are saved with a `_version` field:
 }
 ```
 
+**YAML:**
+
+```yaml
+_version: 2
+theme: dark
+accentColor: '#0066cc'
+```
+
 When not using versions, the data is saved as-is without wrapping.
 
 ## Error Handling
 
-All errors are thrown as `ZodJSONError` with a specific `code` for programmatic
+All errors are thrown as `ZodStoreError` with a specific `code` for programmatic
 handling:
 
 ```typescript
-import { ZodJSONError } from 'zod-store';
+import { ZodStoreError } from 'zod-store';
 
 try {
   const data = await settings.load('./settings.json');
 } catch (error) {
-  if (error instanceof ZodJSONError) {
+  if (error instanceof ZodStoreError) {
     switch (error.code) {
       case 'FileRead':
         console.error('Could not read file:', error.message);
         break;
-      case 'InvalidJSON':
-        console.error('File contains invalid JSON:', error.message);
+      case 'InvalidFormat':
+        console.error('File contains invalid JSON/YAML:', error.message);
         break;
       case 'InvalidVersion':
         console.error('Missing or invalid _version field:', error.message);
@@ -192,6 +249,9 @@ try {
       case 'Migration':
         console.error('Migration failed:', error.message);
         break;
+      case 'MissingDependency':
+        console.error('Optional dependency not installed:', error.message);
+        break;
     }
   }
 }
@@ -203,13 +263,13 @@ The `cause` property contains the original error that triggered the failure.
 This is useful for debugging or extracting detailed validation errors from Zod:
 
 ```typescript
-import { ZodJSONError } from 'zod-store';
+import { ZodStoreError } from 'zod-store';
 import { ZodError } from 'zod';
 
 try {
   const data = await settings.load('./settings.json');
 } catch (error) {
-  if (error instanceof ZodJSONError && error.code === 'Validation') {
+  if (error instanceof ZodStoreError && error.code === 'Validation') {
     if (error.cause instanceof ZodError) {
       // Access Zod's detailed validation errors
       for (const issue of error.cause.issues) {
@@ -222,18 +282,39 @@ try {
 
 ### Error Codes
 
-| Code                 | Description                                             |
-| -------------------- | ------------------------------------------------------- |
-| `FileRead`           | File could not be read from disk                        |
-| `FileWrite`          | File could not be written to disk                       |
-| `InvalidJSON`        | File content is not valid JSON                          |
-| `InvalidVersion`     | `_version` field is missing, not an integer, or ≤ 0     |
-| `UnsupportedVersion` | File version is greater than the current schema version |
-| `Validation`         | Data does not match the Zod schema                      |
-| `Migration`          | A migration function threw an error                     |
-| `Encoding`           | Schema encoding failed during save                      |
+| Code                 | Description                                              |
+| -------------------- | -------------------------------------------------------- |
+| `FileRead`           | File could not be read from disk                         |
+| `FileWrite`          | File could not be written to disk                        |
+| `InvalidFormat`      | File content is not valid (JSON, YAML, etc.)             |
+| `InvalidVersion`     | `_version` field is missing, not an integer, or ≤ 0      |
+| `UnsupportedVersion` | File version is greater than the current schema version  |
+| `Validation`         | Data does not match the Zod schema                       |
+| `Migration`          | A migration function threw an error                      |
+| `Encoding`           | Schema encoding failed during save                       |
+| `MissingDependency`  | An optional dependency (like `js-yaml`) is not installed |
 
 ## Advanced Usage
+
+### Custom Serializers
+
+Create your own serializer to support other file formats:
+
+```typescript
+import { createZodStore, type Serializer } from 'zod-store';
+
+const tomlSerializer: Serializer = {
+  parse(content) {
+    return parseToml(content);
+  },
+  stringify(data, compact) {
+    return stringifyToml(data);
+  },
+  formatName: 'TOML',
+};
+
+const config = createZodStore({ schema: ConfigSchema }, tomlSerializer);
+```
 
 ### Async Migrations
 
@@ -274,7 +355,7 @@ const settings = createZodJSON({
 });
 ```
 
-### Compact JSON Output
+### Compact Output
 
 Save without indentation for smaller file sizes:
 

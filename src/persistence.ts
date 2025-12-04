@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 
 import { ZodError, z } from 'zod';
 
-import { ZodJSONError } from './errors';
+import { ZodStoreError } from './errors';
 
 /**
  * A migration step that transforms data from one schema version to the next.
@@ -63,7 +63,7 @@ export type MigrationStep<V extends number, TFrom, TTo> = {
 };
 
 /**
- * Configuration options for creating a ZodJSON persistence instance.
+ * Configuration options for creating a ZodStore persistence instance.
  *
  * @typeParam V - The current schema version number (literal type)
  * @typeParam T - The current schema's data type
@@ -71,13 +71,13 @@ export type MigrationStep<V extends number, TFrom, TTo> = {
  * @example
  * ```typescript
  * // Without versioning
- * const options: ZodJSONOptions<number, Settings> = {
+ * const options: ZodStoreOptions<number, Settings> = {
  *   schema: SettingsSchema,
  *   default: { theme: 'light' },
  * };
  *
  * // With versioning and migrations
- * const options: ZodJSONOptions<2, SettingsV2> = {
+ * const options: ZodStoreOptions<2, SettingsV2> = {
  *   version: 2 as const,
  *   schema: SettingsSchemaV2,
  *   default: { theme: 'light', fontSize: 14 },
@@ -85,7 +85,7 @@ export type MigrationStep<V extends number, TFrom, TTo> = {
  * };
  * ```
  */
-export type ZodJSONOptions<
+export type ZodStoreOptions<
   V extends number,
   T extends Record<string, unknown>,
 > = {
@@ -141,7 +141,7 @@ export type LoadOptions = {
    * If true, throw errors even when a default value is configured.
    *
    * By default, when a default is configured, load operations return
-   * the default value on errors (file missing, invalid JSON, validation
+   * the default value on errors (file missing, invalid format, validation
    * failure, etc.). Set this to true to throw instead.
    *
    * @defaultValue false
@@ -154,16 +154,16 @@ export type LoadOptions = {
  *
  * @example
  * ```typescript
- * // Pretty-printed JSON (default)
+ * // Pretty-printed output (default)
  * await store.save(data, './config.json');
  *
- * // Compact JSON without indentation
+ * // Compact output without indentation
  * await store.save(data, './config.json', { compact: true });
  * ```
  */
 export type SaveOptions = {
   /**
-   * If true, save JSON without indentation for smaller file size.
+   * If true, save without indentation for smaller file size.
    *
    * @defaultValue false
    */
@@ -171,18 +171,20 @@ export type SaveOptions = {
 };
 
 /**
- * A persistence instance for type-safe JSON file operations.
+ * A persistence instance for type-safe file operations.
  *
- * Created by {@link createZodJSON}. Provides methods to load and save
- * JSON data with Zod validation and optional schema migrations.
+ * Created by {@link createZodStore}, or the format-specific factories
+ * `createZodJSON` (from `zod-store/json`) and `createZodYAML` (from `zod-store/yaml`).
+ * Provides methods to load and save data with Zod validation and optional schema migrations.
  *
  * @typeParam T - The data type managed by this instance
  *
  * @example
  * ```typescript
- * import { createZodJSON, type ZodJSON } from 'zod-store';
+ * import { type ZodStore } from 'zod-store';
+ * import { createZodJSON } from 'zod-store/json';
  *
- * const store: ZodJSON<Settings> = createZodJSON({
+ * const store: ZodStore<Settings> = createZodJSON({
  *   schema: SettingsSchema,
  *   default: { theme: 'light' },
  * });
@@ -191,129 +193,111 @@ export type SaveOptions = {
  * await store.save({ theme: 'dark' }, './settings.json');
  * ```
  */
-export type ZodJSON<T> = {
+export type ZodStore<T> = {
   /**
-   * Loads and validates JSON data from a file.
+   * Loads and validates data from a file.
    *
    * If the instance is configured with a version, applies any necessary
    * migrations to upgrade older data to the current schema version.
    *
-   * @param path - Path to the JSON file
+   * @param path - Path to the file
    * @param options - Load options
    * @returns The validated data
-   * @throws {ZodJSONError} When loading fails and no default is configured, or when `throwOnError` is true
+   * @throws {ZodStoreError} When loading fails and no default is configured, or when `throwOnError` is true
    */
   load(path: string, options?: LoadOptions): Promise<T>;
 
   /**
-   * Saves data to a JSON file.
+   * Saves data to a file.
    *
    * If the instance is configured with a version, includes a `_version`
    * field in the output. Uses the schema's `encodeAsync` for serialization,
    * supporting custom transforms.
    *
    * @param data - The data to save (must match the schema)
-   * @param path - Path to the JSON file
+   * @param path - Path to the file
    * @param options - Save options
-   * @throws {ZodJSONError} When encoding or writing fails
+   * @throws {ZodStoreError} When encoding or writing fails
    */
   save(data: T, path: string, options?: SaveOptions): Promise<void>;
 };
 
 /**
- * Creates a ZodJSON persistence instance for type-safe JSON file operations.
+ * A serializer that converts between data and string representation.
  *
- * The returned instance provides `load` and `save` methods that handle:
- * - Reading and writing JSON files
- * - Validating data against a Zod schema
- * - Applying sequential migrations for versioned schemas
- * - Returning default values on errors (when configured)
+ * Implement this interface to add support for custom file formats.
+ * Built-in implementations are available via `zod-store/json` and `zod-store/yaml`.
+ *
+ * @example
+ * ```typescript
+ * import type { Serializer } from 'zod-store';
+ *
+ * const customSerializer: Serializer = {
+ *   parse(content) {
+ *     return myCustomParse(content);
+ *   },
+ *   stringify(data, compact) {
+ *     return myCustomStringify(data, { compact });
+ *   },
+ *   formatName: 'MyFormat',
+ * };
+ * ```
+ */
+export type Serializer = {
+  /**
+   * Human-readable format name for error messages (e.g., "JSON", "YAML").
+   */
+  formatName: string;
+
+  /**
+   * Parses a string into data.
+   *
+   * @param content - The string content to parse
+   * @returns The parsed data
+   * @throws When the content is not valid for this format
+   */
+  parse(content: string): unknown;
+
+  /**
+   * Stringifies data to a string.
+   *
+   * @param data - The data to stringify
+   * @param compact - Whether to use compact output (no indentation)
+   * @returns The stringified data
+   */
+  stringify(data: unknown, compact: boolean): string;
+};
+
+/**
+ * Creates a ZodStore persistence instance with a custom serializer.
+ *
+ * This is the core factory function used by {@link createZodJSON} and
+ * `createZodYAML`. Use this directly if you need a custom file format.
  *
  * @typeParam V - The current schema version number
  * @typeParam T - The data type produced by the schema
  * @param options - Configuration options for the persistence instance
- * @returns A {@link ZodJSON} instance with typed `load` and `save` methods
+ * @param serializer - The serializer to use for parsing and stringifying
+ * @returns A {@link ZodStore} instance with typed `load` and `save` methods
  * @throws {Error} If the migration chain is invalid (non-sequential or incomplete)
  *
- * @example Basic usage without versioning
+ * @example
  * ```typescript
- * import { z } from 'zod';
- * import { createZodJSON } from 'zod-store';
+ * import { createZodStore, type Serializer } from 'zod-store';
  *
- * const SettingsSchema = z.object({
- *   theme: z.enum(['light', 'dark']),
- *   fontSize: z.number(),
- * });
+ * const mySerializer: Serializer = {
+ *   parse: (s) => JSON.parse(s),
+ *   stringify: (d, compact) => JSON.stringify(d, null, compact ? 0 : 2),
+ *   formatName: 'JSON',
+ * };
  *
- * const settings = createZodJSON({
- *   schema: SettingsSchema,
- *   default: { theme: 'light', fontSize: 14 },
- * });
- *
- * // Load returns default if file doesn't exist
- * const data = await settings.load('./settings.json');
- * console.log(data.theme); // 'light'
- *
- * // Save writes JSON to disk
- * await settings.save({ theme: 'dark', fontSize: 16 }, './settings.json');
- * ```
- *
- * @example Versioned schema with migrations
- * ```typescript
- * import { z } from 'zod';
- * import { createZodJSON } from 'zod-store';
- *
- * // Historical schema (v1)
- * const SettingsV1 = z.object({ theme: z.string() });
- *
- * // Current schema (v2)
- * const SettingsV2 = z.object({
- *   theme: z.enum(['light', 'dark']),
- *   accentColor: z.string(),
- * });
- *
- * const settings = createZodJSON({
- *   version: 2 as const,
- *   schema: SettingsV2,
- *   migrations: [
- *     {
- *       version: 1,
- *       schema: SettingsV1,
- *       migrate: (v1) => ({
- *         theme: v1.theme === 'dark' ? 'dark' : 'light',
- *         accentColor: '#0066cc',
- *       }),
- *     },
- *   ],
- * });
- *
- * // Automatically migrates v1 files to v2 on load
- * const data = await settings.load('./settings.json');
- * ```
- *
- * @example Error handling
- * ```typescript
- * import { createZodJSON, ZodJSONError } from 'zod-store';
- *
- * const settings = createZodJSON({
- *   schema: SettingsSchema,
- *   default: { theme: 'light', fontSize: 14 },
- * });
- *
- * try {
- *   // throwOnError: true ignores the default and throws instead
- *   const data = await settings.load('./settings.json', { throwOnError: true });
- * } catch (error) {
- *   if (error instanceof ZodJSONError) {
- *     console.error(`Error [${error.code}]: ${error.message}`);
- *   }
- * }
+ * const store = createZodStore({ schema: MySchema }, mySerializer);
  * ```
  */
-export function createZodJSON<
+export function createZodStore<
   V extends number,
   T extends Record<string, unknown>,
->(options: ZodJSONOptions<V, T>): ZodJSON<T> {
+>(options: ZodStoreOptions<V, T>, serializer: Serializer): ZodStore<T> {
   const {
     version: currentVersion,
     schema,
@@ -362,7 +346,7 @@ export function createZodJSON<
       fileContent = await fs.readFile(filePath, 'utf-8');
     } catch (error) {
       if (throwOnError || defaultValue === undefined) {
-        throw new ZodJSONError(
+        throw new ZodStoreError(
           'FileRead',
           `Failed to read file: ${filePath}`,
           error instanceof Error ? error : new Error(String(error)),
@@ -371,16 +355,16 @@ export function createZodJSON<
       return getDefault();
     }
 
-    // Parse JSON
+    // Parse content
     let parsed: unknown;
     try {
-      parsed = JSON.parse(fileContent);
+      parsed = serializer.parse(fileContent);
     } catch (error) {
       if (throwOnError || defaultValue === undefined) {
-        throw new ZodJSONError(
-          'InvalidJSON',
-          `Invalid JSON in file: ${filePath}`,
-          error instanceof SyntaxError ? error : new Error(String(error)),
+        throw new ZodStoreError(
+          'InvalidFormat',
+          `Invalid ${serializer.formatName} in file: ${filePath}`,
+          error instanceof Error ? error : new Error(String(error)),
         );
       }
       return getDefault();
@@ -395,7 +379,7 @@ export function createZodJSON<
         !('_version' in parsed)
       ) {
         if (throwOnError || defaultValue === undefined) {
-          throw new ZodJSONError(
+          throw new ZodStoreError(
             'InvalidVersion',
             `Missing _version field in file: ${filePath}`,
           );
@@ -410,7 +394,7 @@ export function createZodJSON<
         versionValue <= 0
       ) {
         if (throwOnError || defaultValue === undefined) {
-          throw new ZodJSONError(
+          throw new ZodStoreError(
             'InvalidVersion',
             `Invalid _version field in file: ${filePath}. Expected integer > 0, got ${JSON.stringify(versionValue)}`,
           );
@@ -422,7 +406,7 @@ export function createZodJSON<
       // Check for unsupported future version
       if (fileVersion > currentVersion) {
         if (throwOnError || defaultValue === undefined) {
-          throw new ZodJSONError(
+          throw new ZodStoreError(
             'UnsupportedVersion',
             `Unsupported file version ${fileVersion} in ${filePath}. Current schema version is ${currentVersion}`,
           );
@@ -445,7 +429,7 @@ export function createZodJSON<
 
         if (migration === undefined) {
           if (throwOnError || defaultValue === undefined) {
-            throw new ZodJSONError(
+            throw new ZodStoreError(
               'Migration',
               `No migration found for version ${dataVersion} in file: ${filePath}`,
             );
@@ -468,7 +452,7 @@ export function createZodJSON<
             if (error instanceof ZodError) {
               message = `${message}\n${z.prettifyError(error)}`;
             }
-            throw new ZodJSONError(
+            throw new ZodStoreError(
               'Migration',
               message,
               error instanceof Error ? error : new Error(String(error)),
@@ -491,7 +475,7 @@ export function createZodJSON<
         if (error instanceof ZodError) {
           message = `${message}\n${z.prettifyError(error)}`;
         }
-        throw new ZodJSONError(
+        throw new ZodStoreError(
           'Validation',
           message,
           error instanceof ZodError ? error : new Error(String(error)),
@@ -518,7 +502,7 @@ export function createZodJSON<
       if (error instanceof ZodError) {
         message = `${message}\n${z.prettifyError(error)}`;
       }
-      throw new ZodJSONError(
+      throw new ZodStoreError(
         'Encoding',
         message,
         error instanceof ZodError ? error : new Error(String(error)),
@@ -534,16 +518,14 @@ export function createZodJSON<
           }
         : encoded;
 
-    // Stringify JSON
-    const jsonString = compact
-      ? JSON.stringify(fileData)
-      : JSON.stringify(fileData, null, 2);
+    // Stringify data
+    const content = serializer.stringify(fileData, compact);
 
     // Write file
     try {
-      await fs.writeFile(filePath, jsonString, 'utf-8');
+      await fs.writeFile(filePath, content, 'utf-8');
     } catch (error) {
-      throw new ZodJSONError(
+      throw new ZodStoreError(
         'FileWrite',
         `Failed to write file: ${filePath}`,
         error instanceof Error ? error : new Error(String(error)),
