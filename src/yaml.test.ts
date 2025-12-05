@@ -13,7 +13,7 @@ const testFile = '/tmp/zod-store-test.yaml';
 
 describe('createZodYAML', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   describe('basic load and save', () => {

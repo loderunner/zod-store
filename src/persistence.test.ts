@@ -31,7 +31,7 @@ const stringToBool = z.codec(z.string(), z.boolean(), {
 
 describe('createZodStore', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   describe('basic load and save', () => {
@@ -203,6 +203,7 @@ describe('createZodStore', () => {
         mockSerializer,
       );
 
+      mockFsPromises.readFile.mockResolvedValue('<invalid-format-default-1>');
       mockSerializer.parse.mockImplementation(() => {
         throw new Error('Invalid format');
       });

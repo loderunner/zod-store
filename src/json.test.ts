@@ -13,7 +13,7 @@ const testFile = '/tmp/zod-store-test.json';
 
 describe('createZodJSON', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   describe('basic load and save', () => {
