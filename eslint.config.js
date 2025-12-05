@@ -10,7 +10,7 @@ import tseslint from 'typescript-eslint';
 export default [
   { files: ['**/*.{js,mjs,cjs,ts}'] },
   {
-    ignores: ['dist/**/*'],
+    ignores: ['dist/**/*', 'e2e/**/*-test.*'],
   },
   {
     languageOptions: { globals: globals.node },
@@ -21,7 +21,10 @@ export default [
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ['*.{config,setup}.{js,mjs,cjs,ts}'],
+          allowDefaultProject: [
+            '*.{config,setup}.{js,mjs,cjs,ts}',
+            'e2e/e2e.test.ts',
+          ],
         },
       },
     },
@@ -103,6 +106,11 @@ export default [
   {
     files: ['**/*.test.ts'],
     ...vitest.configs.recommended,
+    rules: {
+      ...vitest.configs.recommended.rules,
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+    },
   },
   prettierConfig,
   // Re-enables curly braces for all statements after Prettier config
